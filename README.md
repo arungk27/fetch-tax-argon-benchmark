@@ -1,6 +1,8 @@
 # The Fetch Tax: what each retrieval path puts into an agent's context
 
-Companion experiment to the blog post **The Fetch Tax: Your Agent Reads 65,000 Tokens to Use 1,400** (link coming once published).
+Companion experiment to the blog post **The Fetch Tax: Your AI Agent Doesn't Need to Read the Internet. It Needs One Paragraph.** (link coming once published).
+
+This is the author's own experiment, not an official Google benchmark.
 
 Twenty factual questions, each with a known answer and the public page it lives on. For every question, seven retrieval paths fetch the evidence, a Flash-class model answers in one sentence, and a regex grades it. We record how many tokens each path pushed into the context window, what it cost at list price (or what the provider itself reported), how long it took, and whether the answer was right.
 
