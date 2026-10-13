@@ -1,0 +1,162 @@
+[
+  {
+    "id": "q01",
+    "domain": "api-docs",
+    "question": "After the free monthly allowance, what does Grounding with Google Search cost per 1,000 search requests on Gemini 3 models?",
+    "url": "https://ai.google.dev/gemini-api/docs/pricing",
+    "answer_regex": "\\$?14\\b",
+    "answer": "$14 per 1,000 requests"
+  },
+  {
+    "id": "q02",
+    "domain": "api-docs",
+    "question": "What is the base price per 1,000 requests for Exa's Instant Search type?",
+    "url": "https://exa.ai/pricing",
+    "answer_regex": "\\$?4(\\.00)?\\b(?!\\d)",
+    "answer": "$4 per 1,000 requests"
+  },
+  {
+    "id": "q03",
+    "domain": "api-docs",
+    "question": "What is the typical latency of Exa's `instant` search type according to Exa's search quickstart?",
+    "url": "https://exa.ai/docs/search/quickstart",
+    "answer_regex": "250\\s?ms|250 milliseconds|~?250",
+    "answer": "about 250 ms"
+  },
+  {
+    "id": "q04",
+    "domain": "api-docs",
+    "question": "What is the URL of Exa's hosted MCP server?",
+    "url": "https://exa.ai/docs/reference/exa-mcp",
+    "answer_regex": "mcp\\.exa\\.ai/mcp",
+    "answer": "https://mcp.exa.ai/mcp"
+  },
+  {
+    "id": "q05",
+    "domain": "api-docs",
+    "question": "What is the maximum number of URLs the Gemini URL context tool can process in a single request?",
+    "url": "https://ai.google.dev/gemini-api/docs/url-context",
+    "answer_regex": "\\b20\\b",
+    "answer": "20 URLs"
+  },
+  {
+    "id": "q06",
+    "domain": "language-docs",
+    "question": "What is the default value of the maxsize parameter of Python's functools.lru_cache?",
+    "url": "https://docs.python.org/3/library/functools.html",
+    "answer_regex": "\\b128\\b",
+    "answer": "128"
+  },
+  {
+    "id": "q07",
+    "domain": "language-docs",
+    "question": "What is the default recursion limit in CPython, as returned by sys.getrecursionlimit() when unchanged?",
+    "url": "https://docs.python.org/3/library/sys.html",
+    "answer_regex": "\\b1,?000\\b",
+    "answer": "1000"
+  },
+  {
+    "id": "q08",
+    "domain": "infra-docs",
+    "question": "What is the default TCP port on which a PostgreSQL server listens for connections?",
+    "url": "https://www.postgresql.org/docs/current/runtime-config-connection.html",
+    "answer_regex": "\\b5432\\b",
+    "answer": "5432"
+  },
+  {
+    "id": "q09",
+    "domain": "infra-docs",
+    "question": "What is the default port of the kubelet API in Kubernetes?",
+    "url": "https://kubernetes.io/docs/reference/networking/ports-and-protocols/",
+    "answer_regex": "\\b10250\\b",
+    "answer": "10250"
+  },
+  {
+    "id": "q10",
+    "domain": "infra-docs",
+    "question": "By default, on which port does the Open Policy Agent (OPA) server listen when you run `opa run --server`?",
+    "url": "https://www.openpolicyagent.org/docs/latest/cli/",
+    "answer_regex": "\\b8181\\b",
+    "answer": "8181"
+  },
+  {
+    "id": "q11",
+    "domain": "spec",
+    "question": "Which HTTP status code does RFC 6585 define for 'Too Many Requests'?",
+    "url": "https://www.rfc-editor.org/rfc/rfc6585",
+    "answer_regex": "\\b429\\b",
+    "answer": "429"
+  },
+  {
+    "id": "q12",
+    "domain": "spec",
+    "question": "According to RFC 9110, which of these two HTTP methods is idempotent: POST or PUT?",
+    "url": "https://www.rfc-editor.org/rfc/rfc9110.html",
+    "answer_regex": "\\bPUT\\b",
+    "answer": "PUT"
+  },
+  {
+    "id": "q13",
+    "domain": "spec",
+    "question": "In Semantic Versioning 2.0.0, what kind of change requires incrementing the MINOR version?",
+    "url": "https://semver.org/",
+    "answer_regex": "backward[s]?[- ]compatible|compatible manner",
+    "answer": "adding functionality in a backward-compatible manner"
+  },
+  {
+    "id": "q14",
+    "domain": "spec",
+    "question": "In the Apache License 2.0, what is the number of the section titled 'Grant of Patent License'?",
+    "url": "https://www.apache.org/licenses/LICENSE-2.0.txt",
+    "answer_regex": "\\b3\\b",
+    "answer": "Section 3"
+  },
+  {
+    "id": "q15",
+    "domain": "spec",
+    "question": "What is the default maximum number of columns in a single SQLite table (SQLITE_MAX_COLUMN)?",
+    "url": "https://www.sqlite.org/limits.html",
+    "answer_regex": "\\b2,?000\\b",
+    "answer": "2000"
+  },
+  {
+    "id": "q16",
+    "domain": "paper",
+    "question": "According to the abstract of 'Attention Is All You Need', what BLEU score did the Transformer achieve on the WMT 2014 English-to-German translation task?",
+    "url": "https://arxiv.org/abs/1706.03762",
+    "answer_regex": "28\\.4",
+    "answer": "28.4 BLEU"
+  },
+  {
+    "id": "q17",
+    "domain": "encyclopedia",
+    "question": "In which year did Anthropic announce the Model Context Protocol (MCP)?",
+    "url": "https://en.wikipedia.org/wiki/Model_Context_Protocol",
+    "answer_regex": "\\b2024\\b",
+    "answer": "2024"
+  },
+  {
+    "id": "q18",
+    "domain": "api-docs",
+    "question": "Which pip extra do you install to get MCP support in Google's Agent Development Kit (ADK) for Python?",
+    "url": "https://google.github.io/adk-docs/tools-custom/mcp-tools/",
+    "answer_regex": "google-adk\\[mcp\\]|adk\\[mcp\\]",
+    "answer": "google-adk[mcp]"
+  },
+  {
+    "id": "q19",
+    "domain": "api-docs",
+    "question": "What is the paid-tier input price per 1 million tokens for Gemini 3.8 Flash through December 31, 2026?",
+    "url": "https://ai.google.dev/gemini-api/docs/pricing",
+    "answer_regex": "\\$?0\\.75\\b",
+    "answer": "$0.75 per 1M tokens"
+  },
+  {
+    "id": "q20",
+    "domain": "api-docs",
+    "question": "Which request header value is required to enable Exa's Dynamic Highlights research preview?",
+    "url": "https://exa.ai/docs/changelog",
+    "answer_regex": "dynamic-highlights-2026-08-28",
+    "answer": "Exa-Beta: dynamic-highlights-2026-08-28"
+  }
+]

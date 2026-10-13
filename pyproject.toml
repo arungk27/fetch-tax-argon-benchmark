@@ -1,0 +1,11 @@
+[project]
+name = "fetch-tax"
+version = "0.1.0"
+description = "Add your description here"
+requires-python = ">=3.12"
+dependencies = [
+    "google-genai>=2.29",
+    "httpx>=0.28.1",
+    "matplotlib>=3.11",
+    "mcp>=1.0",
+]
