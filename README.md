@@ -2,7 +2,7 @@
 
 Companion experiment to the blog post **The Fetch Tax: Your Agent Reads 65,000 Tokens to Use 1,400** (link coming once published).
 
-Twenty factual questions, each with a known answer and the public page it lives on. For every question, six retrieval paths fetch the evidence, a Flash-class model answers in one sentence, and a regex grades it. We record how many tokens each path pushed into the context window, what it cost at list price (or what the provider itself reported), how long it took, and whether the answer was right.
+Twenty factual questions, each with a known answer and the public page it lives on. For every question, seven retrieval paths fetch the evidence, a Flash-class model answers in one sentence, and a regex grades it. We record how many tokens each path pushed into the context window, what it cost at list price (or what the provider itself reported), how long it took, and whether the answer was right.
 
 ![Results chart](results/fetch_tax_chart.png)
 
@@ -16,6 +16,7 @@ Twenty factual questions, each with a known answer and the public page it lives 
 | Exa highlights (`web_search_exa`, keyless MCP) | 1,719 | 4,779 | 95% | 1,988 | $0.0099 |
 | Exa dynamic highlights (API) | 1,202 | 4,545 | 100% | 1,405 | $0.0087 |
 | Google Search grounding | 0 | 0 | 100% | 0 (≈2 billable queries per question) | $0.0292 |
+| Grounding with Exa (GEAP built-in `exa_ai_search`) | 0 | 0 | 100% | 0 (≈1 billable query per question) | $0.0095 |
 
 **Search-type sweep** (same questions, `highlights: true`, only `type` varies):
 
@@ -28,7 +29,9 @@ Twenty factual questions, each with a known answer and the public page it lives 
 | `deep` | 20/20 | 1,805 | 5.22 s | $0.012 |
 | `deep-reasoning` | 20/20 | 1,653 | 5.19 s | $0.015 |
 
-Read the post for the interpretation. The short version: Google Search grounding is the most accurate path and costs nothing in tokens (it bills per model-chosen query instead); Exa highlights cut the token cost of *reading* by about 7x against page-reading paths; and for single-fact lookups the `type` dial changes only latency and price.
+Read the post for the interpretation. The short version: both model-managed grounding tools on the Gemini Enterprise Agent Platform (Google Search and Exa) were 20/20 with zero tokens in context and bill per model-chosen query; Exa highlights cut the token cost of *reading* by about 7x against page-reading paths; and for single-fact lookups the `type` dial changes only latency and price.
+
+`gemini_exa_grounding` uses Google's documented built-in tool (`types.Tool(exa_ai_search=types.ToolExaAiSearch(api_key=...))`) with default settings. Its cost column counts Exa's search price on your key plus model tokens; any additional platform grounding charge in your agreement is not included.
 
 ## Things to know before trusting the numbers
 
@@ -42,7 +45,7 @@ Read the post for the interpretation. The short version: Google Search grounding
 ## Layout
 
 ```
-fetch_tax.py        the six paths, run + probe commands, list prices
+fetch_tax.py        the seven paths, run + probe commands, list prices
 type_sweep.py       the same questions through every Exa search type
 analyze.py          merge run files, re-grade, summary tables, chart
 questions.json      20 questions: canonical URL, regex, expected answer
@@ -59,7 +62,7 @@ export GOOGLE_CLOUD_PROJECT=your-project-id
 export EXA_API_KEY=...                     # environment only, never in a file
 
 uv run python fetch_tax.py probe           # one question, every path
-uv run python fetch_tax.py run             # 20 questions × 6 paths
+uv run python fetch_tax.py run             # 20 questions × 7 paths
 uv run python type_sweep.py                # 20 questions × 6 search types
 uv run python analyze.py results/runs_*.jsonl --chart results/fetch_tax_chart.png
 ```

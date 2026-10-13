@@ -100,5 +100,22 @@
     "cost_per_correct_usd": 0.029158075,
     "median_latency_s": 5.2,
     "search_queries": 40
+  },
+  {
+    "path": "gemini_exa_grounding",
+    "n": 20,
+    "errors": 0,
+    "median_context_tokens": 0,
+    "mean_context_tokens": 0,
+    "max_context_tokens": 0,
+    "total_context_tokens": 0,
+    "correct": 20,
+    "graded": 20,
+    "accuracy": 1.0,
+    "tokens_per_correct": 0.0,
+    "total_cost_usd": 0.190524,
+    "cost_per_correct_usd": 0.0095262,
+    "median_latency_s": 5.0,
+    "search_queries": 18
   }
 ]

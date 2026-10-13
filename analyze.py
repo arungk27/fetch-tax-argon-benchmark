@@ -25,6 +25,7 @@ ORDER = [
     "exa_highlights",
     "exa_dynamic",
     "google_search",
+    "gemini_exa_grounding",
 ]
 LABELS = {
     "raw_html": "Raw HTML\n(what a naive fetch\nreturns)",
@@ -33,6 +34,7 @@ LABELS = {
     "exa_highlights": "Exa highlights\n(web_search_exa)",
     "exa_dynamic": "Exa dynamic\nhighlights (API)",
     "google_search": "Google Search\ngrounding",
+    "gemini_exa_grounding": "Grounding with Exa\n(GEAP built-in)",
 }
 BG, PANEL, TEXT, GRID = "#0D1B2A", "#13263A", "#E6EDF3", "#2A3B4F"
 AMBER, CORAL, CYAN, MINT = "#FFB800", "#FF6B6B", "#00E5FF", "#3DDC97"
@@ -66,7 +68,8 @@ def load(paths: list[Path], questions_file: Path) -> list[dict]:
                 )
                 # No retrieved material means any correct answer came from the
                 # model's memory, which is not the path's doing.
-                if row["path"] != "google_search" and row.get("pages", 0) == 0:
+                grounding = row["path"] in ("google_search", "gemini_exa_grounding")
+                if not grounding and row.get("pages", 0) == 0:
                     row["correct"] = False
                     row["retrieval_failed"] = True
             merged[(row["question_id"], row["path"])] = row
@@ -161,7 +164,7 @@ def per_question_table(rows: list[dict]) -> str:
 
 def draw_chart(summary: list[dict], rows: list[dict], path: Path) -> None:
     paths = [s["path"] for s in summary]
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 5.8), facecolor=BG)
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(17, 6), facecolor=BG)
     for ax in (ax1, ax2):
         ax.set_facecolor(PANEL)
         ax.tick_params(colors=TEXT)
@@ -181,11 +184,8 @@ def draw_chart(summary: list[dict], rows: list[dict], path: Path) -> None:
         ax1.scatter([i] * len(vals), vals, color=AMBER, alpha=0.55, s=28, zorder=3)
         med = statistics.median(vals)
         ax1.hlines(med, i - 0.3, i + 0.3, color=CYAN, linewidth=2.5, zorder=4)
-        label = (
-            "0 tokens\n(billed per query)"
-            if p == "google_search"
-            else f"median {med:,.0f}"
-        )
+        grounded = p in ("google_search", "gemini_exa_grounding")
+        label = "0 tokens\n(billed per query)" if grounded else f"median {med:,.0f}"
         ax1.annotate(
             label,
             (i, med),

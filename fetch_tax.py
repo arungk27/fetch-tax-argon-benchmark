@@ -62,6 +62,7 @@ PATHS = (
     "exa_highlights",
     "exa_dynamic",
     "google_search",
+    "gemini_exa_grounding",
 )
 
 ANSWER_INSTRUCTION = (
@@ -350,6 +351,45 @@ async def path_exa_dynamic(client: genai.Client, q: dict) -> Record:
     return await answer_from_context(client, q, text, rec)
 
 
+async def path_gemini_exa_grounding(client: genai.Client, q: dict) -> Record:
+    """Gemini's built-in 'Grounding with Exa web search' tool on the Gemini
+    Enterprise Agent Platform: Gemini manages the retrieval, Exa supplies it.
+    Needs EXA_API_KEY (bring-your-own key, per Google's docs)."""
+    rec = Record(q["id"], "gemini_exa_grounding", ANSWER_MODEL)
+    api_key = os.environ.get("EXA_API_KEY")
+    if not api_key:
+        rec.error = "EXA_API_KEY not set"
+        return rec
+    prompt = f"{q['question']}\n{ANSWER_INSTRUCTION}"
+    config = types.GenerateContentConfig(
+        tools=[types.Tool(exa_ai_search=types.ToolExaAiSearch(api_key=api_key))],
+        temperature=0,
+    )
+    start = time.perf_counter()
+    response = await generate_with_retry(client, ANSWER_MODEL, prompt, config)
+    rec.latency_s = time.perf_counter() - start
+    usage = usage_fields(response)
+    rec.context_tokens = usage["tool_use"]
+    rec.prompt_tokens = usage["prompt"] + usage["tool_use"]
+    rec.output_tokens = usage["output"] + usage["thought"]
+    rec.thought_tokens = usage["thought"]
+    rec.answer = (response.text or "").strip()
+    rec.correct = grade(rec.answer, q["answer_regex"])
+    candidate = response.candidates[0] if response.candidates else None
+    meta = getattr(candidate, "grounding_metadata", None)
+    if meta is not None:
+        rec.search_queries = len(meta.web_search_queries or [])
+        rec.sources = [
+            c.web.uri for c in (meta.grounding_chunks or []) if c.web and c.web.uri
+        ]
+        rec.pages = len(rec.sources)
+    # Exa bills its own search price per query on your key (fast = $7/1k).
+    rec.cost_usd = token_cost(rec.prompt_tokens, rec.output_tokens) + (
+        max(rec.search_queries, 1) * PRICE_EXA_SEARCH
+    )
+    return rec
+
+
 # ----------------------------------------------------------------------------- run
 
 
@@ -373,6 +413,8 @@ async def run_question(
                 rec = await path_exa_dynamic(client, q)
             elif path == "google_search":
                 rec = await path_google_search(client, q)
+            elif path == "gemini_exa_grounding":
+                rec = await path_gemini_exa_grounding(client, q)
             else:
                 raise ValueError(path)
         except Exception as exc:  # noqa: BLE001 - record and keep going
