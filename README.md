@@ -2,7 +2,7 @@
 
 Companion experiment to the blog post **The Fetch Tax: Your Agent Asked for a Paragraph. We Handed It the Internet.** (link coming once published).
 
-This is the author's own experiment, not an official Google benchmark.
+This is a personal experiment, prompted by questions customers ask; the conclusions are the author's own.
 
 Twenty factual questions, each with a known answer and the public page it lives on. For every question, seven retrieval paths fetch the evidence, a Flash-class model answers in one sentence, and a regex grades it. We record how many tokens each path pushed into the context window, what it cost at list price (or what the provider itself reported), how long it took, and whether the answer was right.
 
@@ -12,13 +12,13 @@ Twenty factual questions, each with a known answer and the public page it lives 
 
 | Path | Median tokens into context | Worst case | Accuracy | Tokens per correct answer | Cost per correct answer |
 |---|---|---|---|---|---|
-| Raw HTML (naive `GET`) | 65,017 | 398,366 | not answered | – | – |
+| Raw HTML (naive `GET`) | 65,017 | 398,366 | measured only | – | – |
 | Gemini URL context | 4,586 | 59,581 | 90% | 9,531 | $0.0091 |
 | Exa full text (`web_fetch_exa`) | 4,352 | 43,445 | 85% | 10,928 | $0.0106 |
 | Exa highlights (`web_search_exa`, keyless MCP) | 1,719 | 4,779 | 95% | 1,988 | $0.0099 |
 | Exa dynamic highlights (API) | 1,202 | 4,545 | 100% | 1,405 | $0.0087 |
-| Google Search grounding | 0 | 0 | 100% | 0 (≈2 billable queries per question) | $0.0292 |
-| Grounding with Exa (GEAP built-in `exa_ai_search`) | 0 | 0 | 100% | 0 (≈1 billable query per question) | $0.0095 |
+| Google Search grounding | 0 reported | 0 | 100% | 0 reported (≈2 billable queries per question) | $0.0292 |
+| Grounding with Exa (GEAP built-in `exa_ai_search`) | 0 reported | 0 | 100% | 0 reported (≈1 billable query per question) | $0.0095 |
 
 **Search-type sweep** (same questions, `highlights: true`, only `type` varies):
 
@@ -31,7 +31,7 @@ Twenty factual questions, each with a known answer and the public page it lives 
 | `deep` | 20/20 | 1,805 | 5.22 s | $0.012 |
 | `deep-reasoning` | 20/20 | 1,653 | 5.19 s | $0.015 |
 
-Read the post for the interpretation. The short version: both model-managed grounding tools on the Gemini Enterprise Agent Platform (Google Search and Exa) were 20/20 with zero tokens in context and bill per model-chosen query; Exa highlights cut the token cost of *reading* by about 7x against page-reading paths; and for single-fact lookups the `type` dial changes only latency and price.
+Read the post for the interpretation. The short version: Google Search grounding set the bar (20/20, no retrieved-content tokens reported, one tool entry), and Grounding with Exa on the same platform matched it at about one query per question; both bill per model-chosen query rather than per token. Extracting passages used 3.8x less context than reading the page at the median and about 6.8x less per correct answer, without losing accuracy. For single-fact lookups, the `type` dial changed only latency and price.
 
 `gemini_exa_grounding` uses Google's documented built-in tool (`types.Tool(exa_ai_search=types.ToolExaAiSearch(api_key=...))`) with default settings. Its cost column counts Exa's search price on your key plus model tokens; any additional platform grounding charge in your agreement is not included.
 
@@ -39,8 +39,8 @@ Read the post for the interpretation. The short version: both model-managed grou
 
 - **Grading is a regex on a one-sentence answer.** It is mechanical and auditable (`questions.json`), not clever. One regex was wrong in the first pass (it rejected "Section 3." because of the full stop); `analyze.py` re-grades from stored answers, so the fix needed no re-run.
 - **Empty retrievals are graded as failures.** When a path returned nothing, the model sometimes answered from memory. That isn't the path's doing, so `analyze.py` marks those rows incorrect and flags `retrieval_failed`.
-- **The keyless Exa MCP tier dropped calls.** In the first pass 5 of 20 searches came back empty; on the re-run with retries, 7 of 20 needed a retry and one never returned. The API-key paths had zero failures across 140 calls. Both run files are kept.
-- **Costs are list prices on 2026-10-13** (the answering model at $0.75/M input, Google Search $14 per 1,000 queries beyond the free 5,000/month, Exa per its published table), except where Exa's response carried `costDollars`, which is used directly.
+- **The keyless Exa MCP tier dropped calls.** In the first pass 5 of 20 searches came back empty; on the re-run with retries, 7 of 20 needed a retry and one (q06) never returned, which is the highlights path's only miss. The paths that used an Exa API key, directly or through the grounding tool, had zero failures across 164 calls. Both run files are kept.
+- **Costs are list prices on 2026-10-13** (the answering model at $0.75/M input, Google Search $14 per 1,000 queries beyond the free 5,000/month, Exa per its published table), except where Exa's response carried `costDollars`, which is used directly. Free allowances on either side are ignored.
 - **Latency for Google paths includes generation**; Exa's `searchTime` is server-side search only. Don't compare those two columns to each other.
 - **Some questions are things the model already knows** (PostgreSQL's port, RFC 6585). They're there to make the token measurement realistic; the accuracy signal comes mostly from the 2026 facts the model cannot know.
 
@@ -75,7 +75,7 @@ The Exa MCP paths use the public endpoint `https://mcp.exa.ai/mcp` (keyless, rat
 
 ## Wiring Exa into Google Antigravity
 
-Three routes, all covered in the post: the MCP Store (Agent panel → `…` → MCP Servers → Exa → Install), the config file at `~/.gemini/config/mcp_config.json`, or `npx skills add exa-labs/agent-skills`. The config-file entry used here:
+Two routes, both covered in the post: the MCP Store (Agent panel → `…` → MCP Servers → Exa → Install), which uses the keyless hosted server, or Exa's open-source server with your own key in Antigravity's `mcp_config.json` (it opens from the same MCP Servers panel). Exa also publishes an agent skill: `npx skills add exa-labs/agent-skills`. The config-file entry used here:
 
 ```json
 {

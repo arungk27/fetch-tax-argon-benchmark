@@ -1,6 +1,6 @@
 """The Fetch Tax: how many tokens does each retrieval path put into an agent's context?
 
-For every question in questions.json we run up to five retrieval paths and record
+For every question in questions.json we run up to seven retrieval paths and record
 how much text enters the model's context, what it cost, and whether the model
 answered correctly.
 
@@ -8,9 +8,16 @@ answered correctly.
                   pasted the raw page (measurement only, never sent to the model)
   url_context     Gemini's built-in URL context tool reads the canonical URL; Google's
                   own usage object reports the tool-use tokens
-  exa_full_text   Exa MCP ``web_fetch_exa`` returns the canonical page as clean markdown
-  exa_highlights  Exa MCP ``web_search_exa`` finds pages itself and returns highlights
+  exa_full_text   Exa MCP ``web_fetch_exa`` (keyless hosted server) returns the
+                  canonical page as clean markdown
+  exa_highlights  Exa MCP ``web_search_exa`` (keyless hosted server) finds pages
+                  itself and returns highlights
+  exa_dynamic     Exa ``/search`` with Dynamic Highlights (research preview); needs
+                  EXA_API_KEY
   google_search   Gemini's built-in Google Search grounding, no URL supplied
+  gemini_exa_grounding
+                  Gemini's built-in Grounding with Exa tool on the Gemini Enterprise
+                  Agent Platform, no URL supplied; needs EXA_API_KEY
 
 Usage:
     uv run python fetch_tax.py run --project PROJECT [--paths ...] [--limit N]
