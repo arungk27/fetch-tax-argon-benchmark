@@ -1,6 +1,6 @@
 # The Fetch Tax: what each retrieval path puts into an agent's context
 
-Companion experiment to the blog post **The Fetch Tax: Your AI Agent Doesn't Need to Read the Internet. It Needs One Paragraph.** (link coming once published).
+Companion experiment to the blog post **The Fetch Tax: Your Agent Asked for a Paragraph. We Handed It the Internet.** (link coming once published).
 
 This is the author's own experiment, not an official Google benchmark.
 
