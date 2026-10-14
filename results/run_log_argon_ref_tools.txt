@@ -1,0 +1,21 @@
+q01 ref_tools       ✗ ctx=    884 tok prompt=  1,469 $0.0035  12.5s
+q02 ref_tools       ✗ ctx=  2,178 tok prompt=  2,764 $0.0061  10.0s
+q03 ref_tools       ✓ ctx=  1,111 tok prompt=  2,101 $0.0049  10.2s
+q04 ref_tools       ✓ ctx=    855 tok prompt=  1,284 $0.0033  16.2s
+q05 ref_tools       ✓ ctx=    505 tok prompt=    989 $0.0028  10.8s
+q06 ref_tools       ✓ ctx=  5,597 tok prompt=  6,098 $0.0129  13.1s
+q07 ref_tools       ✓ ctx=    374 tok prompt=    864 $0.0023  15.2s
+q08 ref_tools       ✓ ctx=    495 tok prompt=  1,127 $0.0031  11.1s
+q09 ref_tools       ✓ ctx=    845 tok prompt=  1,338 $0.0036  11.3s
+q10 ref_tools       ✓ ctx=  4,382 tok prompt=  4,743 $0.0103  15.8s
+q11 ref_tools       ✓ ctx=      3 tok prompt=    194 $0.0008   7.9s
+q12 ref_tools       ✓ ctx=      3 tok prompt=    204 $0.0008  10.1s
+q13 ref_tools       ✓ ctx=      3 tok prompt=    198 $0.0009  12.8s
+q14 ref_tools       ✓ ctx=     69 tok prompt=    382 $0.0015  14.9s
+q15 ref_tools       ✓ ctx=  4,662 tok prompt=  5,212 $0.0110  17.2s
+q16 ref_tools       ✓ ctx=    460 tok prompt=    986 $0.0033  13.2s
+q17 ref_tools       ✗ ctx=    968 tok prompt=  1,396 $0.0032  12.7s
+q18 ref_tools       ✗ ctx=  2,975 tok prompt=  3,502 $0.0077  11.2s
+q19 ref_tools       ✗ ctx=      3 tok prompt=    222 $0.0014   7.6s
+q20 ref_tools       ✓ ctx=  1,535 tok prompt=  2,011 $0.0047  19.0s
+Wrote /Users/arungk/Documents/Customer_Demos/Blog/experiments/fetch_tax/results/runs_gemini-4-argon_20261014_051448.jsonl

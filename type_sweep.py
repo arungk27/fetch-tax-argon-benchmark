@@ -1,12 +1,12 @@
 """Sweep Exa search types on the same questions: does paying for depth buy anything?
 
 For each ``type`` we run every question through /search with ``highlights: true``,
-hand the highlights to Gemini 3.8 Flash to answer, and record tokens, accuracy,
+hand the highlights to the answering model, and record tokens, accuracy,
 Exa's own ``searchTime`` and ``costDollars``. Deep types may also return a
 synthesized answer in ``output.content``; we grade that separately as a bonus.
 
 Usage:
-    EXA_API_KEY=... uv run python type_sweep.py --project PROJECT [--types auto deep]
+    EXA_API_KEY=... uv run python type_sweep.py --project PROJECT [--model M]
 """
 
 from __future__ import annotations
@@ -23,9 +23,12 @@ from datetime import UTC, datetime
 
 import httpx
 
+import fetch_tax
 from fetch_tax import (
+    DEFAULT_MODEL,
     EXA_API_URL,
     EXA_NUM_RESULTS,
+    MODEL_PRICES,
     RESULTS_DIR,
     Record,
     answer_from_context,
@@ -50,7 +53,7 @@ def render(results: list[dict]) -> str:
 
 
 async def one(client, http: httpx.AsyncClient, q: dict, search_type: str) -> dict:
-    rec = Record(q["id"], f"exa_type_{search_type}", "gemini-3.8-flash")
+    rec = Record(q["id"], f"exa_type_{search_type}", fetch_tax.ANSWER_MODEL)
     payload = {
         "query": q["question"],
         "type": search_type,
@@ -105,10 +108,12 @@ async def main_async(args: argparse.Namespace) -> None:
     api_key = os.environ.get("EXA_API_KEY")
     if not api_key:
         sys.exit("Set EXA_API_KEY in the environment (never in a file).")
+    fetch_tax.ANSWER_MODEL = fetch_tax.TOKEN_MODEL = args.model
     client = make_client(args.project, args.location)
     questions = load_questions(args.limit)
     RESULTS_DIR.mkdir(exist_ok=True)
-    out = RESULTS_DIR / f"type_sweep_{datetime.now(UTC):%Y%m%d_%H%M%S}.jsonl"
+    stamp = f"{datetime.now(UTC):%Y%m%d_%H%M%S}"
+    out = RESULTS_DIR / f"type_sweep_{args.model}_{stamp}.jsonl"
     sem = asyncio.Semaphore(args.concurrency)
 
     async def guarded(http, q, t):
@@ -148,6 +153,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--project", default=os.environ.get("GOOGLE_CLOUD_PROJECT"))
     parser.add_argument("--location", default="global")
+    parser.add_argument("--model", default=DEFAULT_MODEL, choices=sorted(MODEL_PRICES))
     parser.add_argument("--types", nargs="+", default=list(TYPES), choices=TYPES)
     parser.add_argument("--limit", type=int)
     parser.add_argument("--concurrency", type=int, default=3)

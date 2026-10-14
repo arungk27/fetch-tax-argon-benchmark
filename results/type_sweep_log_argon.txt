@@ -1,0 +1,7 @@
+instant         correct 20/20  median ctx  1,791 tok  median exa time  0.33s  total $0.080  errors 0
+fast            correct 20/20  median ctx  1,970 tok  median exa time  0.32s  total $0.140  errors 0
+auto            correct 20/20  median ctx  1,853 tok  median exa time  2.35s  total $0.140  errors 0
+deep-lite       correct 20/20  median ctx  1,826 tok  median exa time  1.65s  total $0.240  errors 0
+deep            correct 20/20  median ctx  1,645 tok  median exa time  6.46s  total $0.240  errors 0
+deep-reasoning  correct 20/20  median ctx  1,305 tok  median exa time  6.92s  total $0.300  errors 0
+Wrote /Users/arungk/Documents/Customer_Demos/Blog/experiments/fetch_tax/results/type_sweep_gemini-4-argon_20261014_050419.jsonl

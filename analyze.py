@@ -2,6 +2,7 @@
 
 Usage:
     uv run python analyze.py results/runs_X.jsonl --chart results/fetch_tax_chart.png
+    uv run python analyze.py RUNS.jsonl --model-label "Gemini 4 Argon answering"
 """
 
 from __future__ import annotations
@@ -24,6 +25,7 @@ ORDER = [
     "exa_full_text",
     "exa_highlights",
     "exa_dynamic",
+    "ref_tools",
     "google_search",
     "gemini_exa_grounding",
 ]
@@ -33,9 +35,11 @@ LABELS = {
     "exa_full_text": "Exa full text\n(web_fetch_exa)",
     "exa_highlights": "Exa highlights\n(web_search_exa)",
     "exa_dynamic": "Exa dynamic\nhighlights (API)",
+    "ref_tools": "ref.tools\n(search + read)",
     "google_search": "Google Search\ngrounding",
     "gemini_exa_grounding": "Grounding with Exa\n(GEAP built-in)",
 }
+DOCS_DOMAINS = {"api-docs", "language-docs", "infra-docs"}
 BG, PANEL, TEXT, GRID = "#0D1B2A", "#13263A", "#E6EDF3", "#2A3B4F"
 AMBER, CORAL, CYAN, MINT = "#FFB800", "#FF6B6B", "#00E5FF", "#3DDC97"
 
@@ -52,16 +56,16 @@ def load(paths: list[Path], questions_file: Path) -> list[dict]:
     Every graded row is re-graded from its stored answer with the current regex, so
     fixing a regex in questions.json never requires re-running the experiment.
     """
-    patterns = {
-        q["id"]: q["answer_regex"]
-        for q in json.loads(questions_file.read_text(encoding="utf-8"))
-    }
+    questions = json.loads(questions_file.read_text(encoding="utf-8"))
+    patterns = {q["id"]: q["answer_regex"] for q in questions}
+    domains = {q["id"]: q["domain"] for q in questions}
     merged: dict[tuple[str, str], dict] = {}
     for path in paths:
         for line in path.read_text(encoding="utf-8").splitlines():
             if not line.strip():
                 continue
             row = json.loads(line)
+            row["domain"] = domains.get(row["question_id"], row.get("domain", ""))
             if row.get("correct") is not None and row["question_id"] in patterns:
                 row["correct"] = grade(
                     row.get("answer", ""), patterns[row["question_id"]]
@@ -145,15 +149,23 @@ def per_question_table(rows: list[dict]) -> str:
     by_q: dict[str, dict[str, dict]] = defaultdict(dict)
     for r in rows:
         by_q[r["question_id"]][r["path"]] = r
+    present = [p for p in ORDER if any(r["path"] == p for r in rows)]
     head = (
-        "| Question | " + " | ".join(ORDER) + " |\n|---|" + "---|" * len(ORDER) + "\n"
+        "| Question | "
+        + " | ".join(present)
+        + " |\n|---|"
+        + "---|" * len(present)
+        + "\n"
     )
     lines = []
     for qid in sorted(by_q):
         cells = []
-        for path in ORDER:
+        for path in present:
             r = by_q[qid].get(path)
-            if r is None or r.get("error"):
+            if r is None:
+                cells.append("–")
+                continue
+            if r.get("error"):
                 cells.append("err")
                 continue
             mark = {True: "✓", False: "✗", None: ""}[r["correct"]]
@@ -162,9 +174,34 @@ def per_question_table(rows: list[dict]) -> str:
     return head + "\n".join(lines) + "\n"
 
 
-def draw_chart(summary: list[dict], rows: list[dict], path: Path) -> None:
+def domain_table(rows: list[dict]) -> str:
+    """Accuracy on documentation questions versus specs, papers and encyclopedias."""
+    tally: dict[str, dict[str, list[int]]] = defaultdict(
+        lambda: {"docs": [0, 0], "other": [0, 0]}
+    )
+    for r in rows:
+        if r.get("error") or r.get("correct") is None:
+            continue
+        group = "docs" if r.get("domain") in DOCS_DOMAINS else "other"
+        tally[r["path"]][group][0] += int(bool(r["correct"]))
+        tally[r["path"]][group][1] += 1
+    head = (
+        "| Path | Docs questions correct | Other questions correct |\n|---|---|---|\n"
+    )
+    lines = []
+    for path in ORDER:
+        if path in tally:
+            docs, other = tally[path]["docs"], tally[path]["other"]
+            lines.append(f"| {path} | {docs[0]}/{docs[1]} | {other[0]}/{other[1]} |")
+    return head + "\n".join(lines) + "\n"
+
+
+def draw_chart(
+    summary: list[dict], rows: list[dict], path: Path, model_label: str
+) -> None:
     paths = [s["path"] for s in summary]
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(17, 6), facecolor=BG)
+    width = 17 if len(paths) <= 7 else 22
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(width, 6.5), facecolor=BG)
     for ax in (ax1, ax2):
         ax.set_facecolor(PANEL)
         ax.tick_params(colors=TEXT)
@@ -185,7 +222,8 @@ def draw_chart(summary: list[dict], rows: list[dict], path: Path) -> None:
         med = statistics.median(vals)
         ax1.hlines(med, i - 0.3, i + 0.3, color=CYAN, linewidth=2.5, zorder=4)
         grounded = p in ("google_search", "gemini_exa_grounding")
-        label = "0 tokens\n(billed per query)" if grounded else f"median {med:,.0f}"
+        # int() matches the summary table's median column
+        label = "0 tokens\nbilled per query" if grounded else f"median {int(med):,}"
         ax1.annotate(
             label,
             (i, med),
@@ -193,7 +231,7 @@ def draw_chart(summary: list[dict], rows: list[dict], path: Path) -> None:
             textcoords="offset points",
             ha="center",
             color=CYAN,
-            fontsize=9,
+            fontsize=8.5 if grounded else 9,
         )
     ax1.set_yscale("log")
     ax1.set_xticks(xs)
@@ -226,10 +264,10 @@ def draw_chart(summary: list[dict], rows: list[dict], path: Path) -> None:
     ax2.set_title("Tokens you pay per correct answer", color=TEXT, fontsize=12)
 
     n = max(s["n"] for s in summary)
-    words = {4: "four", 5: "five", 6: "six", 7: "seven"}
+    words = {4: "four", 5: "five", 6: "six", 7: "seven", 8: "eight"}
     k = words.get(len(summary), str(len(summary)))
     fig.suptitle(
-        f"The Fetch Tax: {n} factual questions, {k} retrieval paths, a Flash-class model answering",
+        f"The Fetch Tax: {n} factual questions, {k} retrieval paths, {model_label}",
         color=TEXT,
         fontsize=14,
         y=0.99,
@@ -246,18 +284,34 @@ def main() -> None:
     parser.add_argument("--chart", type=Path)
     parser.add_argument("--summary", type=Path, default=Path("results/summary.md"))
     parser.add_argument("--questions", type=Path, default=Path("questions.json"))
+    parser.add_argument(
+        "--model-label",
+        default="a Flash-class model answering",
+        help="how the chart title names the answering model",
+    )
     args = parser.parse_args()
 
     rows = load(args.files, args.questions)
     summary = summarize(rows)
     table = as_markdown(summary)
     detail = per_question_table(rows)
+    domains = domain_table(rows)
     print(table)
+    print(domains)
     print(detail)
+    notes = ""
+    if any(s["path"] == "ref_tools" for s in summary):
+        notes = (
+            "\nref_tools cost covers model tokens only; ref.tools usage is billed "
+            "against its own plan credits.\n"
+        )
     args.summary.parent.mkdir(parents=True, exist_ok=True)
     args.summary.write_text(
         "## Per path\n\n"
         + table
+        + notes
+        + "\n## Documentation questions versus the rest\n\n"
+        + domains
         + "\n## Per question (context tokens, ✓ correct)\n\n"
         + detail,
         encoding="utf-8",
@@ -266,7 +320,7 @@ def main() -> None:
         json.dumps(summary, indent=2), encoding="utf-8"
     )
     if args.chart:
-        draw_chart(summary, rows, args.chart)
+        draw_chart(summary, rows, args.chart, args.model_label)
 
 
 if __name__ == "__main__":

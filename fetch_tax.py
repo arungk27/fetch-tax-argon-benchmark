@@ -1,6 +1,6 @@
 """The Fetch Tax: how many tokens does each retrieval path put into an agent's context?
 
-For every question in questions.json we run up to seven retrieval paths and record
+For every question in questions.json we run up to eight retrieval paths and record
 how much text enters the model's context, what it cost, and whether the model
 answered correctly.
 
@@ -8,19 +8,22 @@ answered correctly.
                   pasted the raw page (measurement only, never sent to the model)
   url_context     Gemini's built-in URL context tool reads the canonical URL; Google's
                   own usage object reports the tool-use tokens
-  exa_full_text   Exa MCP ``web_fetch_exa`` (keyless hosted server) returns the
-                  canonical page as clean markdown
-  exa_highlights  Exa MCP ``web_search_exa`` (keyless hosted server) finds pages
-                  itself and returns highlights
+  exa_full_text   Exa MCP ``web_fetch_exa`` (hosted server; keyless unless
+                  --exa-mcp-key) returns the canonical page as clean markdown
+  exa_highlights  Exa MCP ``web_search_exa`` (hosted server; keyless unless
+                  --exa-mcp-key) finds pages itself and returns highlights
   exa_dynamic     Exa ``/search`` with Dynamic Highlights (research preview); needs
                   EXA_API_KEY
+  ref_tools       ref.tools MCP driven like an agent: the model writes the query
+                  from the tool's schema, picks one result, ``ref_read_url`` reads
+                  it; one session per question; needs REF_API_KEY
   google_search   Gemini's built-in Google Search grounding, no URL supplied
   gemini_exa_grounding
                   Gemini's built-in Grounding with Exa tool on the Gemini Enterprise
                   Agent Platform, no URL supplied; needs EXA_API_KEY
 
 Usage:
-    uv run python fetch_tax.py run --project PROJECT [--paths ...] [--limit N]
+    uv run python fetch_tax.py run --project PROJECT [--model M] [--paths ...]
     uv run python fetch_tax.py probe --project PROJECT      # one question, all paths
 """
 
@@ -41,6 +44,7 @@ import httpx
 from google import genai
 from google.genai import errors, types
 from mcp.client.client import Client as McpClient
+from mcp.client.streamable_http import create_mcp_http_client, streamable_http_client
 
 HERE = Path(__file__).parent
 RESULTS_DIR = HERE / "results"
@@ -51,13 +55,18 @@ EXA_API_URL = "https://api.exa.ai/search"
 EXA_DYNAMIC_BETA = "dynamic-highlights-2026-08-28"
 EXA_NUM_RESULTS = 5
 EXA_FULL_TEXT_MAX_CHARS = 200_000
+REF_MCP_URL = "https://api.ref.tools/mcp"
 
-ANSWER_MODEL = "gemini-3.8-flash"
-TOKEN_MODEL = "gemini-3.8-flash"
+DEFAULT_MODEL = "gemini-3.8-flash"
+ANSWER_MODEL = DEFAULT_MODEL  # set from --model at run time
+TOKEN_MODEL = DEFAULT_MODEL  # tokens are counted with the answering model's tokenizer
 
-# Published list prices on 2026-10-13, used only to turn tokens into dollars.
-PRICE_PER_M_INPUT = 0.75  # Gemini 3.8 Flash input, through 2026-12-31
-PRICE_PER_M_OUTPUT = 3.75  # Gemini 3.8 Flash output incl. thinking
+# Published list prices, used only to turn tokens into dollars:
+# model -> (input $/M, output $/M incl. thinking, cached-input multiplier or None)
+MODEL_PRICES = {
+    "gemini-3.8-flash": (0.75, 3.75, None),  # paid tier, through 2026-12-31
+    "gemini-4-argon": (2.00, 10.00, 0.05),  # introductory, through 2026-11-30
+}
 PRICE_GOOGLE_SEARCH_QUERY = 14 / 1000  # after 5,000 free requests per month
 PRICE_EXA_SEARCH = 7 / 1000  # auto search, up to 10 results, contents included
 PRICE_EXA_CONTENTS_PAGE = 1 / 1000  # contents endpoint, per page per content type
@@ -68,6 +77,7 @@ PATHS = (
     "exa_full_text",
     "exa_highlights",
     "exa_dynamic",
+    "ref_tools",
     "google_search",
     "gemini_exa_grounding",
 )
@@ -85,6 +95,7 @@ class Record:
     model: str
     context_tokens: int = 0  # tokens of retrieved material entering the context
     prompt_tokens: int = 0  # total prompt tokens billed for the answering call
+    cached_tokens: int = 0  # part of prompt_tokens served from the implicit cache
     output_tokens: int = 0
     thought_tokens: int = 0
     context_chars: int = 0
@@ -100,6 +111,7 @@ class Record:
     attempts: int = 1
     context_preview: str = ""
     sources: list[str] = field(default_factory=list)
+    search_query: str = ""  # the query an agent-driven path actually sent
 
 
 def load_questions(limit: int | None = None) -> list[dict]:
@@ -114,10 +126,17 @@ def grade(answer: str, pattern: str) -> bool:
     return re.search(pattern, answer, re.IGNORECASE) is not None
 
 
-def token_cost(prompt_tokens: int, output_tokens: int) -> float:
-    return (
-        prompt_tokens * PRICE_PER_M_INPUT + output_tokens * PRICE_PER_M_OUTPUT
-    ) / 1_000_000
+def model_prices() -> tuple[float, float, float | None]:
+    return MODEL_PRICES.get(ANSWER_MODEL, MODEL_PRICES[DEFAULT_MODEL])
+
+
+def token_cost(prompt_tokens: int, output_tokens: int, cached_tokens: int = 0) -> float:
+    price_in, price_out, cached_multiplier = model_prices()
+    cached = cached_tokens if cached_multiplier is not None else 0
+    input_cost = (prompt_tokens - cached) * price_in + cached * price_in * (
+        cached_multiplier or 1.0
+    )
+    return (input_cost + output_tokens * price_out) / 1_000_000
 
 
 def make_client(project: str, location: str) -> genai.Client:
@@ -155,12 +174,13 @@ async def count_tokens(client: genai.Client, text: str) -> int:
 def usage_fields(response: types.GenerateContentResponse) -> dict[str, int]:
     usage = response.usage_metadata
     if usage is None:
-        return {"prompt": 0, "output": 0, "thought": 0, "tool_use": 0}
+        return {"prompt": 0, "output": 0, "thought": 0, "tool_use": 0, "cached": 0}
     return {
         "prompt": int(usage.prompt_token_count or 0),
         "output": int(usage.candidates_token_count or 0),
         "thought": int(usage.thoughts_token_count or 0),
         "tool_use": int(usage.tool_use_prompt_token_count or 0),
+        "cached": int(usage.cached_content_token_count or 0),
     }
 
 
@@ -181,7 +201,7 @@ async def path_raw_html(client: genai.Client, q: dict) -> Record:
     rec.context_tokens = await count_tokens(client, body)
     rec.pages = 1
     rec.sources = [q["url"]]
-    rec.cost_usd = rec.context_tokens * PRICE_PER_M_INPUT / 1_000_000
+    rec.cost_usd = rec.context_tokens * model_prices()[0] / 1_000_000
     return rec
 
 
@@ -199,13 +219,14 @@ async def path_url_context(client: genai.Client, q: dict) -> Record:
     usage = usage_fields(response)
     rec.context_tokens = usage["tool_use"]
     rec.prompt_tokens = usage["prompt"] + usage["tool_use"]
+    rec.cached_tokens = usage["cached"]
     rec.output_tokens = usage["output"] + usage["thought"]
     rec.thought_tokens = usage["thought"]
     rec.pages = 1
     rec.sources = [q["url"]]
     rec.answer = (response.text or "").strip()
     rec.correct = grade(rec.answer, q["answer_regex"])
-    rec.cost_usd = token_cost(rec.prompt_tokens, rec.output_tokens)
+    rec.cost_usd = token_cost(rec.prompt_tokens, rec.output_tokens, rec.cached_tokens)
     return rec
 
 
@@ -222,11 +243,12 @@ async def answer_from_context(
     rec.latency_s += time.perf_counter() - start
     usage = usage_fields(response)
     rec.prompt_tokens = usage["prompt"]
+    rec.cached_tokens = usage["cached"]
     rec.output_tokens = usage["output"] + usage["thought"]
     rec.thought_tokens = usage["thought"]
     rec.answer = (response.text or "").strip()
     rec.correct = grade(rec.answer, q["answer_regex"])
-    rec.cost_usd += token_cost(rec.prompt_tokens, rec.output_tokens)
+    rec.cost_usd += token_cost(rec.prompt_tokens, rec.output_tokens, rec.cached_tokens)
     return rec
 
 
@@ -298,6 +320,7 @@ async def path_google_search(client: genai.Client, q: dict) -> Record:
     usage = usage_fields(response)
     rec.context_tokens = usage["tool_use"]
     rec.prompt_tokens = usage["prompt"] + usage["tool_use"]
+    rec.cached_tokens = usage["cached"]
     rec.output_tokens = usage["output"] + usage["thought"]
     rec.thought_tokens = usage["thought"]
     rec.answer = (response.text or "").strip()
@@ -310,9 +333,9 @@ async def path_google_search(client: genai.Client, q: dict) -> Record:
             c.web.uri for c in (meta.grounding_chunks or []) if c.web and c.web.uri
         ]
         rec.pages = len(rec.sources)
-    rec.cost_usd = token_cost(rec.prompt_tokens, rec.output_tokens) + (
-        rec.search_queries * PRICE_GOOGLE_SEARCH_QUERY
-    )
+    rec.cost_usd = token_cost(
+        rec.prompt_tokens, rec.output_tokens, rec.cached_tokens
+    ) + (rec.search_queries * PRICE_GOOGLE_SEARCH_QUERY)
     return rec
 
 
@@ -378,6 +401,7 @@ async def path_gemini_exa_grounding(client: genai.Client, q: dict) -> Record:
     usage = usage_fields(response)
     rec.context_tokens = usage["tool_use"]
     rec.prompt_tokens = usage["prompt"] + usage["tool_use"]
+    rec.cached_tokens = usage["cached"]
     rec.output_tokens = usage["output"] + usage["thought"]
     rec.thought_tokens = usage["thought"]
     rec.answer = (response.text or "").strip()
@@ -391,9 +415,102 @@ async def path_gemini_exa_grounding(client: genai.Client, q: dict) -> Record:
         ]
         rec.pages = len(rec.sources)
     # Exa bills its own search price per query on your key (fast = $7/1k).
-    rec.cost_usd = token_cost(rec.prompt_tokens, rec.output_tokens) + (
-        max(rec.search_queries, 1) * PRICE_EXA_SEARCH
-    )
+    rec.cost_usd = token_cost(
+        rec.prompt_tokens, rec.output_tokens, rec.cached_tokens
+    ) + (max(rec.search_queries, 1) * PRICE_EXA_SEARCH)
+    return rec
+
+
+async def agent_step(client: genai.Client, prompt: str) -> tuple[str, dict[str, int]]:
+    """One small decision an agent makes between tool calls (query, pick)."""
+    config = types.GenerateContentConfig(temperature=0)
+    response = await generate_with_retry(client, ANSWER_MODEL, prompt, config)
+    return (response.text or "").strip(), usage_fields(response)
+
+
+async def path_ref_tools(client: genai.Client, q: dict) -> Record:
+    """ref.tools docs search, driven the way an agent would drive it.
+
+    The model writes the query from the tool's own schema guidance, reads the
+    search results, picks one and ``ref_read_url`` reads it. One MCP session per
+    question mirrors one agent task: ref.tools uses the session's search history
+    to trim what it returns. The two helper calls are added to this path's bill.
+    ref.tools usage is billed against its own plan, so cost_usd covers model
+    tokens only.
+    """
+    rec = Record(q["id"], "ref_tools", ANSWER_MODEL)
+    api_key = os.environ.get("REF_API_KEY")
+    if not api_key:
+        rec.error = "REF_API_KEY not set"
+        return rec
+    read_text = ""
+    chosen = ""
+    helper = {"prompt": 0, "output": 0, "thought": 0, "tool_use": 0, "cached": 0}
+
+    def bill(usage: dict[str, int]) -> None:
+        for key, value in usage.items():
+            helper[key] += value
+
+    start = time.perf_counter()
+    async with create_mcp_http_client(headers={"x-ref-api-key": api_key}) as http:
+        transport = streamable_http_client(REF_MCP_URL, http_client=http)
+        async with McpClient(transport) as ref:
+            listed = await ref.list_tools()
+            schema = next(
+                t.input_schema
+                for t in listed.tools
+                if t.name == "ref_search_documentation"
+            )
+            guidance = schema["properties"]["query"].get("description", "")
+            reply, usage = await agent_step(
+                client,
+                f"Write a query for a documentation search tool.\n"
+                f"Tool guidance: {guidance}\nQuestion: {q['question']}\n"
+                "Reply with the query only.",
+            )
+            bill(usage)
+            lines = reply.splitlines()
+            rec.search_query = (lines[0].strip(" \"'`") if lines else "") or q[
+                "question"
+            ]
+            search = await ref.call_tool(
+                "ref_search_documentation", {"query": rec.search_query}
+            )
+            search_text = mcp_text(search)
+            if getattr(search, "is_error", False):
+                rec.error = search_text[:300]
+                return rec
+            urls = re.findall(r"^(https?://\S+)", search_text, re.MULTILINE)
+            if urls:
+                reply, usage = await agent_step(
+                    client,
+                    f"Question: {q['question']}\n\n"
+                    f"Documentation search results:\n{search_text}\n\n"
+                    "Which single result is most likely to state the answer? "
+                    "Reply with its URL only.",
+                )
+                bill(usage)
+                named = [u for u in urls if u in reply]
+                chosen = max(named, key=len) if named else urls[0]
+                read = await ref.call_tool("ref_read_url", {"url": chosen})
+                read_text = mcp_text(read)
+                if getattr(read, "is_error", False):
+                    rec.error = read_text[:300]
+                    return rec
+    rec.latency_s = time.perf_counter() - start
+    text = f"{search_text}\n\n---\n\n{read_text}" if read_text else search_text
+    rec.context_chars = len(text)
+    rec.context_preview = text[:400]
+    rec.context_tokens = await count_tokens(client, text)
+    rec.sources = [chosen] if chosen else []
+    rec.pages = 1 if read_text else 0
+    rec = await answer_from_context(client, q, text, rec)
+    helper_output = helper["output"] + helper["thought"]
+    rec.prompt_tokens += helper["prompt"]
+    rec.cached_tokens += helper["cached"]
+    rec.output_tokens += helper_output
+    rec.thought_tokens += helper["thought"]
+    rec.cost_usd += token_cost(helper["prompt"], helper_output, helper["cached"])
     return rec
 
 
@@ -418,6 +535,8 @@ async def run_question(
                 rec = await path_exa_highlights(client, mcp, q)
             elif path == "exa_dynamic":
                 rec = await path_exa_dynamic(client, q)
+            elif path == "ref_tools":
+                rec = await path_ref_tools(client, q)
             elif path == "google_search":
                 rec = await path_google_search(client, q)
             elif path == "gemini_exa_grounding":
@@ -442,13 +561,15 @@ async def run_question(
 
 
 async def cmd_run(args: argparse.Namespace) -> None:
+    global ANSWER_MODEL, TOKEN_MODEL
+    ANSWER_MODEL = TOKEN_MODEL = args.model
     client = make_client(args.project, args.location)
     questions = load_questions(args.limit)
     paths = tuple(args.paths)
     RESULTS_DIR.mkdir(exist_ok=True)
     stamp = f"{datetime.now(UTC):%Y%m%d_%H%M%S}"
-    out_path = RESULTS_DIR / f"runs_{stamp}.jsonl"
-    needs_mcp = any(p.startswith("exa") for p in paths)
+    out_path = RESULTS_DIR / f"runs_{args.model}_{stamp}.jsonl"
+    needs_mcp = any(p in ("exa_full_text", "exa_highlights") for p in paths)
 
     async def run_all(mcp: McpClient | None) -> None:
         with out_path.open("w", encoding="utf-8") as fh:
@@ -458,7 +579,15 @@ async def cmd_run(args: argparse.Namespace) -> None:
                     fh.write(json.dumps(row, ensure_ascii=False) + "\n")
                     fh.flush()
 
-    if needs_mcp:
+    if needs_mcp and args.exa_mcp_key:
+        api_key = os.environ.get("EXA_API_KEY")
+        if not api_key:
+            sys.exit("--exa-mcp-key needs EXA_API_KEY in the environment.")
+        async with create_mcp_http_client(headers={"x-api-key": api_key}) as http:
+            transport = streamable_http_client(EXA_MCP_URL, http_client=http)
+            async with McpClient(transport) as mcp:
+                await run_all(mcp)
+    elif needs_mcp:
         async with McpClient(EXA_MCP_URL) as mcp:
             await run_all(mcp)
     else:
@@ -475,8 +604,14 @@ def main() -> None:
         p = sub.add_parser(name)
         p.add_argument("--project", default=os.environ.get("GOOGLE_CLOUD_PROJECT"))
         p.add_argument("--location", default="global")
+        p.add_argument("--model", default=DEFAULT_MODEL, choices=sorted(MODEL_PRICES))
         p.add_argument("--paths", nargs="+", default=list(PATHS), choices=PATHS)
         p.add_argument("--limit", type=int, default=1 if name == "probe" else None)
+        p.add_argument(
+            "--exa-mcp-key",
+            action="store_true",
+            help="authenticate Exa's hosted MCP server with EXA_API_KEY",
+        )
     args = parser.parse_args()
     if not args.project:
         sys.exit("Set --project or GOOGLE_CLOUD_PROJECT.")
